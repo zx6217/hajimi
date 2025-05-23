@@ -101,11 +101,18 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
         elif is_nothinking_model: base_model_name = base_model_name[:-len("-nothinking")]
         elif is_max_thinking_model: base_model_name = base_model_name[:-len("-max")]
         
+        # Define supported models for these specific variants
+        supported_flash_variants = [
+            "gemini-2.5-flash-preview-04-17",
+            "gemini-2.5-flash-preview-05-20"
+        ]
+        supported_flash_variants_str = "' or '".join(supported_flash_variants)
+
         # Specific model variant checks (if any remain exclusive and not covered dynamically)
-        if is_nothinking_model and base_model_name != "gemini-2.5-flash-preview-04-17":
-            return JSONResponse(status_code=400, content=create_openai_error_response(400, f"Model '{request.model}' (-nothinking) is only supported for 'gemini-2.5-flash-preview-04-17'.", "invalid_request_error"))
-        if is_max_thinking_model and base_model_name != "gemini-2.5-flash-preview-04-17":
-            return JSONResponse(status_code=400, content=create_openai_error_response(400, f"Model '{request.model}' (-max) is only supported for 'gemini-2.5-flash-preview-04-17'.", "invalid_request_error"))
+        if is_nothinking_model and base_model_name not in supported_flash_variants:
+            return JSONResponse(status_code=400, content=create_openai_error_response(400, f"Model '{request.model}' (-nothinking) is only supported for '{supported_flash_variants_str}'.", "invalid_request_error"))
+        if is_max_thinking_model and base_model_name not in supported_flash_variants:
+            return JSONResponse(status_code=400, content=create_openai_error_response(400, f"Model '{request.model}' (-max) is only supported for '{supported_flash_variants_str}'.", "invalid_request_error"))
 
         generation_config = create_generation_config(request)
 
@@ -241,7 +248,16 @@ async def chat_completions(fastapi_request: Request, request: OpenAIRequest, api
             }
 
             if request.stream:
-                if app_config.FAKE_STREAMING_ENABLED:
+                # 每次调用时直接从settings获取最新的FAKE_STREAMING值
+                fake_streaming_enabled = False
+                if hasattr(settings, 'FAKE_STREAMING'):
+                    fake_streaming_enabled = settings.FAKE_STREAMING
+                else:
+                    fake_streaming_enabled = app_config.FAKE_STREAMING_ENABLED
+                
+                vertex_log('info', f"DEBUG: FAKE_STREAMING setting is {fake_streaming_enabled} for OpenAI model {request.model}")
+                
+                if fake_streaming_enabled:
                     vertex_log('info', f"INFO: OpenAI Fake Streaming (SSE Simulation) ENABLED for model '{request.model}'.")
                     # openai_params already has "stream": True from initial setup,
                     # but openai_fake_stream_generator will make a stream=False call internally.
